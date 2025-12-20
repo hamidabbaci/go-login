@@ -1,0 +1,88 @@
+# =========================
+# Go build outputs
+# =========================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace / cache
+/bin/
+/dist/
+/build/
+/tmp/
+/vendor/        # اگر vendor استفاده نمی‌کنی، نگه دار؛ اگر استفاده می‌کنی، این خط رو حذف کن
+*.coverprofile
+*.prof
+
+# Go tooling
+/go.work
+/go.work.sum
+
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.p12
+*.pfx
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+*.pid
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# JetBrains
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/shelf/
+.idea/**/httpRequests/
+
+# =========================
+# Docker
+# =========================
+# docker-compose override / local configs
+docker-compose.override.yml
+
+# Local volumes (اگر volume ها داخل پروژه ساخته می‌شن)
+**/data/
+**/db_data/
+**/mysql_data/
+**/volumes/
+
+# =========================
+# MySQL / phpMyAdmin exports
+# =========================
+*.sql
+*.dump
+*.bak
+
+# =========================
+# Misc
+# =========================
+*.swp
+*.swo
+*.tmp

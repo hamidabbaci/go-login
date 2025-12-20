@@ -16,6 +16,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// [
+// "hamid" => ["register" => 1334],
+// "akbar" => ["register" => 3333],
+// ]
+
+type OTP struct {
+	Code      string    // خود کد
+	ExpiresAt time.Time // تا کی معتبره
+	Used      bool      // استفاده شده یا نه
+}
+
+var OtpStore = make(map[string]map[string]*OTP)
+
 func main() {
 	//  Setup Gin
 	gin.SetMode(gin.ReleaseMode)
@@ -50,6 +63,7 @@ func main() {
 		var body struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
+			Otp      string `json:"otp"`
 		}
 
 		if err := c.ShouldBindJSON(&body); err != nil {
@@ -58,6 +72,31 @@ func main() {
 		}
 		if body.Username == "" || body.Password == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username and password are required"})
+			return
+		}
+
+		if body.Otp == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp is required"})
+			return
+		}
+
+		otpDetail, ok := OtpStore[body.Username]["register"]
+
+		if ok {
+			if otpDetail.Code != body.Otp {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "otp code is incorrect"})
+				return
+			}
+			if otpDetail.ExpiresAt.Before(time.Now()) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "otp expires date is in the future"})
+				return
+			}
+			if otpDetail.Used {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "otp already used"})
+				return
+			}
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp code is not found"})
 			return
 		}
 
@@ -75,6 +114,8 @@ func main() {
 			return
 		}
 
+		otpDetail.Used = true
+
 		c.JSON(http.StatusOK, gin.H{"message": "User registered successfully"})
 	})
 
@@ -83,12 +124,35 @@ func main() {
 		var body struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
+			Otp      string `json:"otp"`
 		}
 
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+
+		otpDetail, ok := OtpStore[body.Username]["login"]
+
+		if ok {
+			if otpDetail.Code != body.Otp {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "otp code is incorrect"})
+				return
+			}
+			if otpDetail.ExpiresAt.Before(time.Now()) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "otp expires date is in the future"})
+				return
+			}
+			if otpDetail.Used {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "otp already used"})
+				return
+			}
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp code is not found"})
+			return
+		}
+
+		otpDetail.Used = true
 
 		var userID int64
 		var passwordHash string
@@ -131,51 +195,46 @@ func main() {
 	})
 
 	//  OTP Send
-	r.POST("/otp/send", func(c *gin.Context) {
+	r.POST("/otp", func(c *gin.Context) {
 		var body struct {
 			Username string `json:"username"`
-			Purpose  string `json:"purpose"` // register | forget_password | login
+			Section  string `json:"section"` // register | forget_password | login
 		}
 
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+
 		if body.Username == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username is required"})
 			return
 		}
-		if body.Purpose != "register" && body.Purpose != "forget_password" && body.Purpose != "login" {
+		if body.Section != "register" && body.Section != "forget_password" && body.Section != "login" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "purpose must be register | forget_password | login"})
 			return
 		}
 
-		otp, err := generateOTP6()
+		code, err := generateOTP6()
+
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate otp"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		otpHash := hashOTP(otp)
+		if OtpStore[body.Username] == nil {
+			OtpStore[body.Username] = make(map[string]*OTP)
+		}
 
-		_, _ = db.Exec(
-			"UPDATE otps SET used_at = NOW() WHERE username = ? AND purpose = ? AND used_at IS NULL AND expires_at > NOW()",
-			body.Username, body.Purpose,
-		)
-
-		expiresAt := time.Now().Add(2 * time.Minute)
-		_, execErr := db.Exec(
-			"INSERT INTO otps (username, purpose, otp_hash, expires_at) VALUES (?, ?, ?, ?)",
-			body.Username, body.Purpose, otpHash, expiresAt,
-		)
-		if execErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": execErr.Error()})
-			return
+		OtpStore[body.Username][body.Section] = &OTP{
+			Code:      code,
+			ExpiresAt: time.Now().Add(2 * time.Minute),
+			Used:      false,
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"message":    "otp sent",
-			"otp":        otp, // for learning
+			"otp":        code, // for learning
 			"expires_in": 120,
 		})
 	})
