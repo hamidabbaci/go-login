@@ -52,10 +52,6 @@ func main() {
 	if err := db.Ping(); err != nil {
 		log.Fatal("failed to ping db:", err)
 	}
-	// ====== 4) Ping ========================================================
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "pong"})
-	})
 
 	//  Register
 	r.POST("/register", func(c *gin.Context) {
@@ -263,6 +259,80 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"id": userID, "username": username})
+	})
+
+	// Forget Password
+	r.POST("/forget_password", func(c *gin.Context) {
+		var body struct {
+			Username    string `json:"username"`
+			NewPassword string `json:"newPassword"`
+			Otp         string `json:"otp"`
+		}
+
+		// 1) خواندن JSON
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 2) چک ورودی‌ها
+		if body.Username == "" || body.NewPassword == "" || body.Otp == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "username, newPassword and otp are required"})
+			return
+		}
+
+		// 3) پیدا کردن OTP مربوط به forget_password
+		otpDetail, ok := OtpStore[body.Username]["forget_password"]
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp code is not found"})
+			return
+		}
+
+		// 4) بررسی کد OTP
+		if otpDetail.Code != body.Otp {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp code is incorrect"})
+			return
+		}
+
+		// 5) بررسی منقضی نشدن OTP
+		if otpDetail.ExpiresAt.Before(time.Now()) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp is expired"})
+			return
+		}
+
+		// 6) بررسی استفاده نشدن OTP
+		if otpDetail.Used {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "otp already used"})
+			return
+		}
+
+		// 7) هش کردن پسورد جدید
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate password hash"})
+			return
+		}
+
+		// 8) آپدیت پسورد در DB
+		res, execErr := db.Exec(
+			"UPDATE users SET password_hash = ? WHERE username = ?",
+			string(hashedPassword), body.Username,
+		)
+		if execErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": execErr.Error()})
+			return
+		}
+
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "user not found"})
+			return
+		}
+
+		// 9) OTP رو مصرف‌شده کن
+		otpDetail.Used = true
+
+		c.JSON(http.StatusOK, gin.H{"message": "password updated successfully"})
 	})
 
 	//  Logout (token رو revoke می‌کنه)
